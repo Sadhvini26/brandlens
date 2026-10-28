@@ -1,5 +1,5 @@
-# BrandLens (Round 2 MVP)
-RAG-based brand governance with human-in-the-loop review. Gemini is the only AI API used.
+# BrandLens 
+RAG-based brand governance with human-in-the-loop review. 
 
 ## Run
 ```bash
