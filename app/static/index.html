@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BrandLens</title>
+<style>
+:root{--ink:#1b2a3a;--paper:#f7f8fa;--card:#fff;--line:#d5dbe3;--accent:#0b6e75;--high:#b3261e;--med:#a15c00;--low:#4b5d70}
+*{box-sizing:border-box}body{margin:0;font:16px/1.5 system-ui,sans-serif;background:var(--paper);color:var(--ink)}
+header{display:flex;gap:1rem;align-items:center;padding:.75rem 1.25rem;background:var(--ink);color:#fff}
+header h1{font-size:1.1rem;margin:0;flex:1}nav button{background:none;color:#fff;border:0;padding:.4rem .7rem;cursor:pointer;font:inherit;border-radius:4px}
+nav button[aria-current=true]{background:#ffffff26}main{max-width:980px;margin:1.5rem auto;padding:0 1rem}
+.card{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:1rem;margin-bottom:1rem}
+button,input,select,textarea{font:inherit}button.p{background:var(--accent);color:#fff;border:0;padding:.5rem .9rem;border-radius:4px;cursor:pointer}
+button.s{background:#fff;border:1px solid var(--line);padding:.35rem .7rem;border-radius:4px;cursor:pointer}
+input,select,textarea{width:100%;padding:.5rem;border:1px solid var(--line);border-radius:4px;margin:.25rem 0 .75rem}
+:focus-visible{outline:3px solid #f2b705;outline-offset:2px}
+.f{border-left:4px solid var(--low)}.f.high{border-color:var(--high)}.f.medium{border-color:var(--med)}
+.tag{display:inline-block;font-size:.8rem;border:1px solid var(--line);border-radius:3px;padding:0 .4rem;margin-right:.3rem}
+del{background:#fde7e5}ins{background:#dff3e4;text-decoration:none}.muted{color:#5b6b7b;font-size:.9rem}pre{white-space:pre-wrap;font:inherit}
+.row{display:flex;gap:1rem;flex-wrap:wrap}.row>*{flex:1;min-width:240px}
+</style></head><body>
+<header><h1>BrandLens</h1><nav id="nav" aria-label="Main"></nav><span id="who" class="muted" style="color:#c8d3de"></span></header>
+<main id="app"></main>
+<script>
+let T=localStorage.t,ROLE=localStorage.r,USER=localStorage.u,VIEW="review";
+const $=s=>document.querySelector(s), esc=s=>(s??"").toString().replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+async function api(p,o={}){o.headers={...(o.headers||{}),Authorization:"Bearer "+T};if(o.json){o.headers["Content-Type"]="application/json";o.body=JSON.stringify(o.json)}
+ const r=await fetch("/api"+p,o);if(r.status==401){logout();throw 0}if(!r.ok){alert((await r.json()).detail||"Something went wrong");throw 0}return r.json()}
+function logout(){localStorage.clear();T=null;render()}
+function nav(){const tabs=[["review","Reviews"]];if(ROLE=="admin")tabs.push(["kb","Knowledge base"],["audit","Audit log"]);if(["admin","manager"].includes(ROLE))tabs.push(["ins","Insights"]);
+ $("#nav").innerHTML=tabs.map(([k,l])=>`<button aria-current="${VIEW==k}" onclick="VIEW='${k}';render()">${l}</button>`).join("")+`<button onclick="logout()">Sign out</button>`;$("#who").textContent=USER+" ("+ROLE+")"}
+async function render(){ if(!T){$("#nav").innerHTML="";$("#who").textContent="";return $("#app").innerHTML=`<div class="card" style="max-width:340px;margin:3rem auto"><h2>Sign in</h2>
+ <label>Username<input id="u" autocomplete="username"></label><label>Password<input id="p" type="password" autocomplete="current-password"></label>
+ <button class="p" onclick="login()">Sign in</button><p class="muted">Demo: admin / creator / manager / reviewer, password = name + 123</p></div>`}
+ nav();({review:reviews,kb,ins,audit})[VIEW]()}
+async function login(){const r=await fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:$("#u").value,password:$("#p").value})});
+ if(!r.ok)return alert("Wrong username or password");const d=await r.json();T=localStorage.t=d.token;ROLE=localStorage.r=d.role;USER=localStorage.u=d.username;VIEW="review";render()}
+async function reviews(){const subs=await api("/submissions");
+ const form=ROLE=="reviewer"?"":`<form class="card" onsubmit="newSub(event)"><h2>Check content before publishing</h2><div class="row"><label>Channel<select name="channel"><option>LinkedIn post<option>Press release<option>Blog<option>Email<option>Web page</select></label>
+ <label>Audience<input name="audience" value="General"></label></div><label>Paste text<textarea name="text" rows="5"></textarea></label><label>Or upload PDF, DOCX or image<input type="file" name="file"></label>
+ <button class="p">Run review</button> <span id="busy" class="muted"></span></form>`;
+ $("#app").innerHTML=form+`<div class="card"><h2>Submissions</h2>`+(subs.map(s=>`<p><a href="#" onclick="open_(${s.id});return false">#${s.id}</a> ${esc(s.channel)} · by ${esc(s.creator)} · <span class="tag">${s.status}</span><span class="tag">risk: ${s.risk}</span></p>`).join("")||"<p class=muted>Nothing yet. Paste some content above.</p>")+`</div><div id="detail"></div>`}
+async function newSub(e){e.preventDefault();$("#busy").textContent="Reviewing…";const r=await api("/submissions",{method:"POST",body:new FormData(e.target)});open_(r.id.id??r.id)}
+async function open_(id){const s=await api("/submissions/"+id),v=s.versions.at(-1),fv=[...s.versions].reverse().find(x=>x.findings.length)||v;
+ const acts=ROLE!="reviewer"&&["draft","changes_requested"].includes(s.status);
+ $("#detail").innerHTML=`<div class="card"><h2>Submission #${id} <span class="tag">${s.status}</span><span class="tag">risk: ${s.risk}</span></h2>
+ <p class="muted">Version ${v.n} · ${esc(v.note)}</p><pre>${esc(v.content)}</pre>
+ <p class="muted">AI-assisted review (Google Gemini) plus rule-based checks. Nothing is changed or published without a person's decision.</p></div>
+ <div class="card"><h3>Findings (version ${fv.n})</h3>`+(fv.findings.map(f=>`<div class="card f ${f.severity}"><span class="tag">${f.origin=="ai"?"AI-generated":"Rule-based"}</span><span class="tag">${f.category}</span><span class="tag">${f.severity}</span><span class="tag">confidence ${Math.round(f.confidence*100)}%</span>${f.advisory?'<span class="tag">advisory</span>':""}<span class="tag">${f.status}</span>
+ <p><b>${esc(f.issue)}</b></p><p class="muted">Source: ${esc(f.source_title)}</p><p>Found: <del>${esc(f.quote)}</del> → <ins>${esc(f.suggestion)}</ins></p>`+
+ (acts&&f.status=="open"?`<button class="s" onclick="res(${f.id},'accept',${id})">Accept fix</button> <button class="s" onclick="ed(${f.id},${id})">Edit</button> <button class="s" onclick="dis(${f.id},${id})">Dismiss</button>`:"")+`</div>`).join("")||"<p class=muted>No issues found.</p>")+
+ (acts?`<button class="s" onclick="api('/submissions/${id}/recheck',{method:'POST'}).then(()=>open_(${id}))">Re-check latest version</button> <button class="p" onclick="api('/submissions/${id}/submit',{method:'POST'}).then(()=>open_(${id}))">Send for approval</button>`:"")+`</div>`+
+ (["pending_manager","pending_reviewer"].includes(s.status)&&ROLE!="creator"?`<div class="card"><h3>Decision</h3><textarea id="cm" rows="2" placeholder="Comment"></textarea><button class="p" onclick="dec(${id},'approve')">Approve</button> <button class="s" onclick="dec(${id},'changes')">Request changes</button> <button class="s" onclick="dec(${id},'reject')">Reject</button></div>`:"")+
+ `<div class="card"><h3>History</h3>`+s.versions.map(x=>`<p class="muted">v${x.n} · ${x.created} · ${esc(x.note)}</p>`).join("")+s.comments.map(c=>`<p>${esc(c.user)}: <b>${c.action}</b> ${esc(c.text)}</p>`).join("")+`</div>`}
+const res=(f,a,id,extra={})=>api("/findings/"+f+"/resolve",{method:"POST",json:{action:a,...extra}}).then(()=>open_(id));
+const dis=(f,id)=>{const r=prompt("Why are you dismissing this?");if(r)res(f,"dismiss",id,{reason:r})};
+const ed=(f,id)=>{const r=prompt("Your replacement text:");if(r)res(f,"edit",id,{replacement:r})};
+const dec=(id,d)=>api("/submissions/"+id+"/decide",{method:"POST",json:{decision:d,comment:$("#cm").value}}).then(()=>reviews().then(()=>open_(id)));
+async function kb(){const k=await api("/knowledge");$("#app").innerHTML=`<div class="row"><form class="card" onsubmit="impG(event)"><h3>Import guidelines</h3><p class="muted">Gemini splits them into citable rules. Review the list below.</p><input type="file" name="file"><textarea name="text" rows="3" placeholder="…or paste guideline text"></textarea><button class="p">Extract rules</button></form>
+ <form class="card" onsubmit="addK(event)"><h3>Add fact, glossary term or asset</h3><select name="kind"><option value="fact">Approved fact<option value="glossary">Glossary (title = banned term, text = preferred)<option value="asset">Asset rule (logo, palette, fonts)</select>
+ <input name="title" placeholder="Title / banned term" required><textarea name="text" rows="2" placeholder="Text / preferred wording" required></textarea><input name="owner" placeholder="Owner"><input name="expiry" type="date"><input name="keywords" placeholder="Fact keywords that signal use, comma separated"><button class="p">Add</button></form></div>
+ <div class="card"><h3>Knowledge base (${k.length})</h3>`+k.map(x=>`<p><span class="tag">${x.kind}</span><b>${esc(x.title)}</b> — ${esc(x.text)} ${x.expiry?`<span class="muted">expires ${x.expiry}</span>`:""} <button class="s" onclick="api('/knowledge/${x.id}',{method:'DELETE'}).then(kb)">Delete</button></p>`).join("")+`</div>`}
+async function impG(e){e.preventDefault();const r=await api("/knowledge/guideline",{method:"POST",body:new FormData(e.target)});alert(r.rules_created+" rules created");kb()}
+async function addK(e){e.preventDefault();const f=Object.fromEntries(new FormData(e.target));await api("/knowledge",{method:"POST",json:f});kb()}
+async function ins(){const d=await api("/insights");$("#app").innerHTML=`<div class="card"><h3>Issues by category</h3>`+d.by_category.map(c=>`<p>${c.category}: <b>${c.n}</b></p>`).join("")+`</div><div class="card"><h3>Most-dismissed rules</h3>`+
+ d.most_dismissed_rules.map(r=>`<p>${esc(r.source_title)}: ${r.dismissed||0} of ${r.total} dismissed</p>`).join("")+`</div>`+(d.unclear_rule_summary?`<div class="card"><h3>Guidelines that may be unclear (AI summary)</h3>`+d.unclear_rule_summary.map(s=>`<p><b>${esc(s.rule)}</b><br>${esc(s.likely_problem)}<br><i>Try: ${esc(s.suggested_rewrite)}</i></p>`).join("")+`</div>`:"")}
+async function audit(){const a=await api("/audit");$("#app").innerHTML=`<div class="card"><h3>Audit log</h3>`+a.map(x=>`<p class="muted">${x.ts} · ${esc(x.user)} · ${x.action} ${esc(x.detail)}</p>`).join("")+`</div>`}
+render();
+</script></body></html>
